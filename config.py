@@ -1,0 +1,3 @@
+MODEL_PATH = "yolo11n.pt"
+USE_GPU = True
+CONFIDENCE_THRESHOLD = 0.5
