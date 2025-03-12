@@ -1,5 +1,5 @@
 import supervision as sv
-from inference.detection import ObjectDetector
+from prediction.detection import ObjectDetector
 
 LABEL_ANNOTATOR = sv.LabelAnnotator()
 

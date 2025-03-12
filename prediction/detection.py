@@ -25,7 +25,7 @@ class ObjectDetector:
 
     def _object_generator(self, cap):
         import cv2 as cv
-        from utils import BOX_ANNOTATOR
+        from utils.general import BOX_ANNOTATOR
         while True:
             success, frame = cap.read()
             if not success:

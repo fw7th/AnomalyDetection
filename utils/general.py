@@ -1,7 +1,7 @@
 import supervision as sv
 import cv2 as cv
-from inference.detection import ObjectDetector as OD
-from inference.tracking import Tracker as TK
+from prediction.detection import ObjectDetector as OD
+from prediction.tracking import Tracker as TK
 
 BOX_ANNOTATOR = sv.BoxAnnotator(
     thickness=2,
