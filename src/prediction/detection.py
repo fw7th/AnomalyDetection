@@ -1,11 +1,9 @@
 """
 detection.py
 
-
-Provides functionality for multithreaded detection of humans.
-Includes classes and functions for handling detection, annotation, multithreading,
-and seperate return class funtions.
-
+Provides functionality for multithreaded human detection.
+This module includes classes and functions for handling detection, annotation, 
+and multithreading while ensuring thread safety.
 
 Author: fw7th
 Date: 2025-03-20
@@ -17,86 +15,81 @@ import supervision as sv
 from src import config
 import cv2 as cv
 
-CLASS = 0  # Class 0 is the human class in YOLO.
+CLASS = 0  # Class 0 corresponds to humans in YOLO.
 VID_STRIDE = 1  # Skip every one frame for more efficient processing.
+
 
 class ObjectDetector:
     """
-    Multithreaded implementation to detect humans only, ensuring thread safety
+    A multithreaded YOLO-based human detection system.
 
-    ...
+    This class provides a real-time, thread-safe approach to detecting humans 
+    in a video stream using YOLO and Supervision.
 
     Attributes
     ----------
-    None
-
-
+    (Defined in the constructor docstring)
+       
     Methods
     -------
     threaded_capture(source=None)
-        Takes a source and starts a thread for image processing.
+        Starts a video stream and spawns a thread for human detection.
 
     _object_generator()
-        Detects humans and annotates frames. 
-        
+        Continuously detects and annotates frames in a separate thread.
+
     get_latest_results()
-        Continuously returns detections and frames in real time through multithreading.
+        Retrieves the latest detection results in a thread-safe manner.
 
     stop()
-        Stops the threading and ends the detection algorithm.
+        Stops the detection loop and safely terminates the thread.
     """
-
 
     def __init__(self):
         """
-        Initializes ObjectDetector instance.
+        Initializes an ObjectDetector instance.
 
-
-        Parameters
+        Attributes
         ----------
-        model : -- 
-            gotten from the config module, detector model used is yolo11n.
-        frame : numpy.ndarray
-            stores every frame gotten from the model in real time.
-        results : numpy.ndarray
-            stores the detections and their positions from the YOLO model.
-        detections : numpy.ndarray             
-            used to process results using supervison.
-        annotated : numpy.ndarray
-            stores annotated frames from the predictions.
+        model : YOLO
+            YOLO detection model loaded from the configuration file.
+        frame : numpy.ndarray or None
+            Stores the most recent video frame.
+        results : numpy.ndarray or None
+            Stores the detections and their positions from YOLO.
+        detections : sv.Detections or None
+            Stores processed detections.
+        annotated : numpy.ndarray or None
+            Stores the annotated frame with detected objects.
         running : bool
-            processing state of multithreading operation.
-        lock : 
-            Used to ensure thread safety and avoid race conditions.
+            Indicates whether the detection thread is active.
+        lock : threading.Lock
+            Ensures thread safety when accessing shared attributes.
         """
-
         self.model = YOLO(config.MODEL_PATH)
         self.frame = None
         self.results = None
         self.detections = None
         self.annotated = None
         self.running = False
-        self.lock = threading.Lock() # Thread safety
-
+        self.lock = threading.Lock()  # Ensures thread safety
 
     def threaded_capture(self, source=None):
-        """ Method detects object efficiently through multithreading.
-
+        """
+        Starts the object detection process in a separate thread.
 
         Parameters
         ----------
-        source : str, int
-            Link/source of the video stream or static video file.
-
+        source : str or int, optional
+            The video source (file path, URL, or camera index).
 
         Returns
         -------
-        self.cap : numpy.ndarray
-            Shows if the source was opened or not, returns frames of the file if True.
-        self : ----
-            Returns ObjectDetector class objects.
+        cap : cv.VideoCapture
+            OpenCV video capture object.
+        self : ObjectDetector
+            The current instance of the detector.
         """
-
         if source is None:
             print("Error: No video source provided.")
             return None, None
@@ -104,22 +97,37 @@ class ObjectDetector:
         self.cap = cv.VideoCapture(source)
         if not self.cap.isOpened():
             print("Error: Failed to open video source.")
+            return None, None
 
-        
         self.running = True
         self.thread = threading.Thread(target=self._object_generator, daemon=True)
         self.thread.start()
 
-        return self.cap, self  # Return cap & 
-
+        return self.cap, self
 
     def _object_generator(self):
-        """ Runs detection in a separate thread while updating detections.
-
-        Uses multithreading to detect, process and annotate humans in a frame.
         """
-        
+        Runs detection in a separate thread while updating results.
+
+        This method:
+        - Captures frames from the video source.
+        - Applies YOLO detection to identify humans.
+        - Uses Supervision for preprocessing and annotation.
+        - Updates the latest processed results in a thread-safe manner.
+
+        Updates
+        -------
+        self.frame : numpy.ndarray
+            The latest video frame.
+        self.results : numpy.ndarray
+            YOLO detection results.
+        self.detections : sv.Detections
+            Processed detection outputs.
+        self.annotated : numpy.ndarray
+            The latest annotated frame with detections.
+        """
         from src.utils.general import BOX_ANNOTATOR
+
         while self.running:
             success, frame = self.cap.read()
             if not success:
@@ -133,7 +141,7 @@ class ObjectDetector:
             detections = sv.Detections.from_ultralytics(results)
             annotated = BOX_ANNOTATOR.annotate(frame.copy(), detections=detections)
 
-            # Store the latest results with thread safety
+            # Store the latest results safely
             with self.lock:
                 self.frame = frame
                 self.detections = detections
@@ -143,26 +151,28 @@ class ObjectDetector:
         self.cap.release()
         cv.destroyAllWindows()
 
-
     def get_latest_results(self):
         """
-        Safely get the latest detection results.
-        
+        Retrieves the latest detection results in a thread-safe manner.
+
         Returns
         -------
-        self.results : numpy.ndarray
-            latest detections and positions from YOLO model.
-        self.annotated : numpy.ndarray
-            latest annotated frame showing detected humans.
-        self.detections : numpy.ndarray
-            preprocsssing results from supervision.
+        detections : sv.Detections or None
+            Processed detection outputs.
+        annotated : numpy.ndarray or None
+            The latest annotated frame with detections.
+        results : numpy.ndarray or None
+            Raw YOLO detection results.
         """
-
         with self.lock:
             return self.detections, self.annotated, self.results
 
-
     def stop(self):
-        """Stops the detection loop and safely ends thread."""
+        """
+        Stops the detection process and safely terminates the thread.
+
+        Ensures that the detection loop exits cleanly, releasing resources.
+        """
         self.running = False
-        self.thread.join()
+        if hasattr(self, "thread"):
+            self.thread.join()
