@@ -33,8 +33,6 @@ This project is an **AI-powered smart zone monitoring system** designed for **se
    ```bash
    python main.py
    ```
-_(Modify steps based on your actual implementation.)_  
-
 ---
 
 ## **How It Works**  

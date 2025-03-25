@@ -2,3 +2,6 @@ __pycache__
 __init__.py
 *.pt
 .egg-info
+venv/
+*.log
+./env
