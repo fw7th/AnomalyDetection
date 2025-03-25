@@ -1,13 +1,49 @@
+"""
+tracking.py
+
+Provides functionality for tracking and labeling of detected humans.
+This module includes classes and methods for handling tracking and labeling of tracked objects.
+
+Author: fw7th
+Date: 2025-03-25
+"""
+
 import supervision as sv
 from src.prediction.detection import ObjectDetector
 import time
 import threading
 from src.utils.time import ClockBasedTimer
 
-LABEL_ANNOTATOR = sv.LabelAnnotator()
+LABEL_ANNOTATOR = sv.LabelAnnotator()  # Supervision's label annotator
 
-class Tracker:
+class ObjectTracker:
+    """
+    Multithreaded tracking system.
+
+    Uses ByteTrack as the tracking algorithm. The implementation is based on the Supervision library.
+
+    Attributes
+    ----------
+    tracker : sv.ByteTrack
+        ByteTrack tracking model from Supervision.
+    detector : ObjectDetector
+        Instance of the ObjectDetector class for running detections.
+    timer : ClockBasedTimer
+        Timer instance used to track how long each detected object stays in frame.
+    labeled_frames : numpy.ndarray or None
+        Stores the latest annotated frame with tracking labels.
+    is_running : bool
+        Indicates whether the tracking process is currently active.
+    tracking_lock : threading.Lock
+        Ensures thread safety when accessing shared attributes.
+    error_state : bool
+        Tracks whether a fatal error has occurred during runtime.
+    """
+
     def __init__(self):
+        """
+        Initializes an ObjectTracker instance.
+        """
         self.tracker = sv.ByteTrack()
         self.detector = ObjectDetector()
         self.timer = ClockBasedTimer()
@@ -16,57 +52,59 @@ class Tracker:
         self.tracking_lock = threading.Lock()  # Add a lock for thread safety
         self.error_state = False  # Track if we've encountered fatal errors
 
-
     def get_tracked_objects(self, source=None):
         """
-        Start tracking objects in the video source.
+        Starts tracking objects in the video source.
         This method is designed to run in its own thread.
+        Labels detections with their IDs and time spent in frame.
+
+        Parameters
+        ----------
+        source : str or int
+            The video source (file path, URL, or camera index).
+
+        Raises
+        ------
+        ValueError
+            If no video source is provided.
+        RuntimeError
+            If the detector fails to initialize.
         """
         if source is None:
-            print("Error: No video source provided.")
-            self.error_state = True
-            return
+            raise ValueError("No video source provided. Please specify a valid source.")
 
         try:
             # Initialize the detector
             cap, detector = self.detector.threaded_capture(source)
             if cap is None:
-                print("Error: Failed to initialize detection.")
-                self.error_state = True
-                return
+                raise RuntimeError("Failed to initialize detection. Ensure the video source is accessible.")
 
             print("Tracker initialized successfully. Starting tracking loop...")
-            
+
             # Main tracking loop
             self.is_running = True
             frame_count = 0
             last_update_time = time.time()
-            
+
             while cap.isOpened() and self.is_running:
-                # Get latest detection results from the detector thread
                 current_time = time.time()
                 detections, annotated, results = detector.get_latest_results()
-                
-                # Skip processing if we don't have a frame yet
+
                 if annotated is None:
-                    # Don't sleep for a fixed time - use adaptive waiting
-                    wait_time = min(0.1, max(0.01, (1/30) - (time.time() - current_time)))
-                    time.sleep(wait_time)
+                    # Adaptive waiting
+                    time.sleep(min(0.1, max(0.01, (1/30) - (time.time() - current_time))))
                     continue
-                
-                # Process frame if available
+
                 try:
                     if detections is not None and results is not None:
                         # Update tracking
                         tracked_detections = self.tracker.update_with_detections(detections)
                         time_in_area = self.timer.tick(tracked_detections)
-                        
-                        # Thread-safe update of the labeled frames
+
                         with self.tracking_lock:
                             if len(tracked_detections.tracker_id) > 0:
-                                # Create labels for tracked objects
                                 labels = [
-                                    f"#{tracker_id} {times/10:.1f}s"  # Format to 1 decimal place
+                                    f"#{tracker_id} {times/10:.1f}s"
                                     for tracker_id, times in zip(tracked_detections.tracker_id, time_in_area)
                                 ]
                                 self.labeled_frames = LABEL_ANNOTATOR.annotate(
@@ -75,58 +113,78 @@ class Tracker:
                                     labels=labels
                                 )
                             else:
-                                # If no tracked objects, just show the annotated frame
                                 self.labeled_frames = annotated.copy()
                     else:
-                        # If no detections, show the raw annotated frame
                         with self.tracking_lock:
                             self.labeled_frames = annotated.copy()
-                    
-                    # Count processed frames for performance monitoring
+
                     frame_count += 1
                     if time.time() - last_update_time > 5.0:
                         fps = frame_count / (time.time() - last_update_time)
                         print(f"Tracking processing rate: {fps:.1f} FPS")
                         frame_count = 0
                         last_update_time = time.time()
-                    
-                    # Adaptive sleep to prevent CPU overload
-                    # Sleep less if processing is slow, more if it's fast
-                    processing_time = time.time() - current_time
-                    target_frame_time = 1/30  # Target 30 FPS
-                    sleep_time = max(0.001, target_frame_time - processing_time)
-                    time.sleep(sleep_time)
-                    
+
+                    time.sleep(max(0.001, (1/30) - (time.time() - current_time)))
+
                 except Exception as e:
                     print(f"Error during tracking: {e}")
-                    # Continue instead of breaking - try to recover
                     time.sleep(0.1)
-            
+
         except Exception as e:
             print(f"Fatal tracking error: {e}")
             self.error_state = True
         finally:
-            # Always clean up resources
             self.cleanup()
             print("Tracking thread terminated")
 
     def return_frames(self):
-        """Thread-safe method to get the latest labeled frames."""
+        """
+        Thread-safe method to get the latest labeled frames.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The latest labeled frame from the tracking system.
+            Returns None if no frames have been processed yet.
+        """
         with self.tracking_lock:
             return self.labeled_frames
-    
+
     def get_error_state(self):
-        """Check if tracker encountered any fatal errors."""
+        """
+        Check if the tracker encountered any fatal errors.
+
+        Returns
+        -------
+        bool
+            True if a fatal error occurred, otherwise False.
+
+        Notes
+        -----
+        Common error causes:
+        - Failure in `detector.get_latest_results()`
+        - Unexpected exceptions during tracking updates
+        - Issues with the video source
+        """
         return self.error_state
-    
+
     def stop(self):
-        """Stop the tracking process safely."""
+        """
+        Stops the tracking process safely.
+        """
         print("Stopping tracking...")
         self.is_running = False
-        # No need to call cleanup here, it's called in the finally block
-    
+
     def cleanup(self):
-        """Ensure the detection thread stops when done."""
+        """
+        Ensures all resources are released properly and stops the detector.
+
+        Notes
+        -----
+        - Calls `detector.stop()` to terminate the detection thread.
+        - Ensures tracking stops even if an error occurred.
+        """
         if self.detector.running:
             try:
                 self.detector.stop()
