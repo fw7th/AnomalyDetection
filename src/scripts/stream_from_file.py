@@ -1,3 +1,11 @@
+"""
+Stream_from_file.py
+
+Utilizes docker to run a static video file as an RTSP stream.
+
+Gotten from the web, module was not written by me. All comments however are mine.
+"""
+
 import argparse
 import os
 import subprocess

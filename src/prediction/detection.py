@@ -12,12 +12,11 @@ Date: 2025-03-20
 from ultralytics import YOLO
 import threading
 import supervision as sv
-from src import config
+from src.config import config_env
 import cv2 as cv
+import time
 
 CLASS = 0  # Class 0 corresponds to humans in YOLO.
-VID_STRIDE = 1  # Skip every one frame for more efficient processing.
-
 
 class ObjectDetector:
     """
@@ -32,7 +31,7 @@ class ObjectDetector:
        
     Methods
     -------
-    threaded_capture(source=None)
+    threaded_capture(self.source=None)
         Starts a video stream and spawns a thread for human detection.
 
     _object_generator()
@@ -45,7 +44,7 @@ class ObjectDetector:
         Stops the detection loop and safely terminates the thread.
     """
 
-    def __init__(self):
+    def __init__(self, source):
         """
         Initializes an ObjectDetector instance.
 
@@ -65,23 +64,23 @@ class ObjectDetector:
             Indicates whether the detection thread is active.
         lock : threading.Lock
             Ensures thread safety when accessing shared attributes.
+        source : str or int
+            source of video stream.
         """
-        self.model = YOLO(config.MODEL_PATH)
+        self.model = YOLO(config_env.MODEL_PATH, task='detect', verbose=False)
+
+        self.model.overrides["device"] = '0'  # Specify GPU (if available).
         self.frame = None
         self.results = None
         self.detections = None
         self.annotated = None
         self.running = False
         self.lock = threading.Lock()  # Ensures thread safety
+        self.source = source 
 
-    def threaded_capture(self, source=None):
+    def threaded_capture(self):
         """
         Starts the object detection process in a separate thread.
-
-        Parameters
-        ----------
-        source : str or int, optional
-            The video source (file path, URL, or camera index).
 
         Returns
         -------
@@ -90,11 +89,11 @@ class ObjectDetector:
         self : ObjectDetector
             The current instance of the detector.
         """
-        if source is None:
+        if self.source is None:
             print("Error: No video source provided.")
             return None, None
 
-        self.cap = cv.VideoCapture(source)
+        self.cap = cv.VideoCapture(self.source)
         if not self.cap.isOpened():
             print("Error: Failed to open video source.")
             return None, None
@@ -105,7 +104,31 @@ class ObjectDetector:
 
         return self.cap, self
 
+    def _preprocess_frame(self, frame):
+        """
+        Resizes frame to reduce computational load but preserve aspect ratio for accuracy.
+
+        Parameters
+        ----------
+        frame : numpy.ndarray
+            Takes the generated frame.
+
+        Returns
+        -------
+        resized_frame : numpy.ndarray
+            The frame after preprocessing.
+        """
+        target_width = 640  # Optimal size for most YOLO models
+        aspect_ratio = frame.shape[1] / frame.shape[0]
+        target_height = int(target_width / aspect_ratio)
+        
+        resized_frame = cv.resize(frame, (target_width, target_height), 
+                                   interpolation=cv.INTER_AREA)
+        return resized_frame
+
     def _object_generator(self):
+        frame_skip = 2  # Process every 2nd or 3rd frame.
+        frame_count = 0
         """
         Runs detection in a separate thread while updating results.
 
@@ -126,21 +149,52 @@ class ObjectDetector:
         self.annotated : numpy.ndarray
             The latest annotated frame with detections.
         """
-        from src.utils.general import BOX_ANNOTATOR
+        # Import the annotator of our choice.
+        from src.utils.general import CORNER_ANNOTATOR
+        
+        # Import the zones from the JSON file. 
+        from src.utils.general import load_zones_config
+
+        # Load polygons from our source video.
+        polygons = load_zones_config(config_env.POLYGONS)
+        zones = [
+            sv.PolygonZone(
+                polygon=polygon,
+                triggering_anchors=(sv.Position.CENTER,)
+            )
+            for polygon in polygons
+        ]
 
         while self.running:
             success, frame = self.cap.read()
             if not success:
-                break
+                # For streams, there might be connection loss, let's add a small timeout.
+                time.sleep(0.1)
+                continue
+            
+            frame_count += 1
+            if frame_count % frame_skip != 0:
+                continue
 
+            # Preprocess and detect
+            preprocessed_frame = self._preprocess_frame(frame)
             results = self.model(
-                frame,
+                preprocessed_frame,
                 classes=CLASS,
-                vid_stride=VID_STRIDE
+                stream=True
             )[0]
             detections = sv.Detections.from_ultralytics(results)
-            annotated = BOX_ANNOTATOR.annotate(frame.copy(), detections=detections)
 
+            annotated = frame.copy()
+            # Loop through the polygon and draw it on each frame
+            for idx, zone in enumerate(zones):
+                annotated = sv.draw_polygon(
+                    scene=annotated,
+                    polygon=zone.polygon,
+                    thickness=2
+                )
+                detections = detections[zone.trigger(detections)]
+                annotated = CORNER_ANNOTATOR.annotate(annotated, detections=detections)
             # Store the latest results safely
             with self.lock:
                 self.frame = frame

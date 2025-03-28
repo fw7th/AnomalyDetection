@@ -38,31 +38,28 @@ class ObjectTracker:
         Ensures thread safety when accessing shared attributes.
     error_state : bool
         Tracks whether a fatal error has occurred during runtime.
+    source : int or str
+        Source of the stream file.
     """
 
-    def __init__(self):
+    def __init__(self, source):
         """
         Initializes an ObjectTracker instance.
         """
         self.tracker = sv.ByteTrack()
-        self.detector = ObjectDetector()
         self.timer = ClockBasedTimer()
         self.labeled_frames = None
         self.is_running = False
         self.tracking_lock = threading.Lock()  # Add a lock for thread safety
         self.error_state = False  # Track if we've encountered fatal errors
+        self.source = source
+        self.detector = ObjectDetector(self.source)
 
-    def get_tracked_objects(self, source=None):
+    def get_tracked_objects(self):
         """
         Starts tracking objects in the video source.
         This method is designed to run in its own thread.
         Labels detections with their IDs and time spent in frame.
-
-        Parameters
-        ----------
-        source : str or int
-            The video source (file path, URL, or camera index).
-
         Raises
         ------
         ValueError
@@ -70,12 +67,12 @@ class ObjectTracker:
         RuntimeError
             If the detector fails to initialize.
         """
-        if source is None:
+        if self.source is None:
             raise ValueError("No video source provided. Please specify a valid source.")
 
         try:
             # Initialize the detector
-            cap, detector = self.detector.threaded_capture(source)
+            cap, detector = self.detector.threaded_capture()
             if cap is None:
                 raise RuntimeError("Failed to initialize detection. Ensure the video source is accessible.")
 
