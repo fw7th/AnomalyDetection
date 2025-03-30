@@ -101,7 +101,7 @@ class ObjectTracker:
                         with self.tracking_lock:
                             if len(tracked_detections.tracker_id) > 0:
                                 labels = [
-                                    f"#{tracker_id} {times/10:.1f}s"
+                                    f"#{tracker_id} {times:.1f}s"
                                     for tracker_id, times in zip(tracked_detections.tracker_id, time_in_area)
                                 ]
                                 self.labeled_frames = LABEL_ANNOTATOR.annotate(

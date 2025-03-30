@@ -68,8 +68,6 @@ class ObjectDetector:
             source of video stream.
         """
         self.model = YOLO(config_env.MODEL_PATH, task='detect', verbose=False)
-
-        self.model.overrides["device"] = '0'  # Specify GPU (if available).
         self.frame = None
         self.results = None
         self.detections = None
@@ -104,31 +102,7 @@ class ObjectDetector:
 
         return self.cap, self
 
-    def _preprocess_frame(self, frame):
-        """
-        Resizes frame to reduce computational load but preserve aspect ratio for accuracy.
-
-        Parameters
-        ----------
-        frame : numpy.ndarray
-            Takes the generated frame.
-
-        Returns
-        -------
-        resized_frame : numpy.ndarray
-            The frame after preprocessing.
-        """
-        target_width = 640  # Optimal size for most YOLO models
-        aspect_ratio = frame.shape[1] / frame.shape[0]
-        target_height = int(target_width / aspect_ratio)
-        
-        resized_frame = cv.resize(frame, (target_width, target_height), 
-                                   interpolation=cv.INTER_AREA)
-        return resized_frame
-
     def _object_generator(self):
-        frame_skip = 2  # Process every 2nd or 3rd frame.
-        frame_count = 0
         """
         Runs detection in a separate thread while updating results.
 
@@ -172,16 +146,10 @@ class ObjectDetector:
                 time.sleep(0.1)
                 continue
             
-            frame_count += 1
-            if frame_count % frame_skip != 0:
-                continue
-
             # Preprocess and detect
-            preprocessed_frame = self._preprocess_frame(frame)
             results = self.model(
-                preprocessed_frame,
+                frame,
                 classes=CLASS,
-                stream=True
             )[0]
             detections = sv.Detections.from_ultralytics(results)
 
