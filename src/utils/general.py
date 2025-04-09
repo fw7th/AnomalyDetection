@@ -1,9 +1,6 @@
 import json
 from typing import List
 import numpy as np
-import supervision as sv
-
-CORNER_ANNOTATOR = sv.BoxCornerAnnotator()
 
 def load_zones_config(file_path: str) -> List[np.ndarray]:
     """

@@ -1,4 +1,4 @@
-from src.utils.compile import VideoProcessor
+from src.utils.compile import Compile
 
 source = "/home/fw7th/Videos/1.mp4"
 #source = "rtsp://localhost:8554/live0.stream"
@@ -6,6 +6,7 @@ source = "/home/fw7th/Videos/1.mp4"
 save = "/home/fw7th/Videos/output.mp4"
 
 
-pro = VideoProcessor(source, save)
-pro.display_video()
-pro.save_video()
+pipe = Compile(source)
+pipe.setup_and_start()
+pipe.start()
+pipe.stop()
