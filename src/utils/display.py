@@ -10,7 +10,7 @@ class VideoDisplay:
     Optimized video processing class that handles frame capture, processing,
     and display with efficient multithreading and resource management.
     """
-    def __init__(self, tracker_queue, maxframes=1000, enable_saving=False, save_dir=None):
+    def __init__(self, maxframes=1000, enable_saving=False, save_dir=None):
         """
         Initialize the video processor with source and output paths.
         
@@ -21,7 +21,7 @@ class VideoDisplay:
         maxsize : int, optional
             Size of the frame buffer queue (default: 15)
         """
-        self.tracker_queue = tracker_queue
+        self.display_queue = queue.Queue(maxsize=20)
         self.use_gpu = torch.cuda.is_available()
         
         # Thread-safe queue for frame buffering
@@ -56,7 +56,7 @@ class VideoDisplay:
         """
         while self.running.is_set():
             try:
-                frames = self.tracker_queue.get(timeout=0.1)
+                frames = self.display_queue.get(timeout=0.1)
                 if frames is None:
                     print("No tracking frames recieved")
                     time.sleep(1)
@@ -87,6 +87,9 @@ class VideoDisplay:
 
         except KeyboardInterrupt:
             print("Processing interrupted by user")
+
+        finally: 
+            self.is_saving.clear()
 
     def stop(self):
         self.running.clear()
