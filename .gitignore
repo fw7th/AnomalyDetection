@@ -5,3 +5,5 @@ venv/
 *.log
 ./env
 build/
+*.pt
+*.partial
