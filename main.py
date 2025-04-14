@@ -7,6 +7,4 @@ save = "/home/fw7th/Videos/output.mp4"
 
 
 pipe = Compile(source)
-pipe.setup_and_start()
-pipe.start()
-pipe.stop()
+pipe.run()

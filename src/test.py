@@ -1,24 +1,34 @@
-from src.config import config_env
+import multiprocessing as mp
 from ultralytics import YOLO
-import torch
+from src.config.config_env import V8_PATH
+import numpy as np
+import cv2
 
-image = "/home/fw7th/Pictures/me.jpg"
+def run_yolo(frame, result_queue):
+    print("Loading model in process...")
+    model = YOLO(V8_PATH)
+    print("Model loaded, running inference...")
+    results = model(frame, classes=[0], conf=0.25, stream=True)
+    print("Inference complete!")
+    result_queue.put(results)
 
-model = YOLO(config_env.V8_PATH, task="detect", verbose=False)
-results = model(
-        image,
-        classes=[0],  # Person class
-        conf=0.25,    # Higher confidence threshold for fewer false positives
-        iou=0.45,     # Lower IOU threshold for better performance
-        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    )[0]
-print(f"YOLO detection completed: {type(results)}")
-
-for result in results:
-    boxes = result.boxes  # Boxes object for bounding box outputs
-    masks = result.masks  # Masks object for segmentation masks outputs
-    keypoints = result.keypoints  # Keypoints object for pose outputs
-    probs = result.probs  # Probs object for classification outputs
-    obb = result.obb  # Oriented boxes object for OBB outputs
-    result.show()  # display to screen
-    result.save(filename="result.jpg")  # 
+if __name__ == "__main__":
+    # Create a dummy frame
+    frame = "/home/fw7th/Videos/1.mp4"
+    # Or load an actual image
+    # frame = cv2.imread("test_image.jpg")
+    
+    result_queue = mp.Queue()
+    p = mp.Process(target=run_yolo, args=(frame, result_queue))
+    print("Starting process...")
+    p.start()
+    p.join(timeout=60)  # Wait up to 60 seconds
+    
+    if p.is_alive():
+        print("Process still running after timeout - possible hang!")
+        p.terminate()
+    else:
+        print("Process completed normally")
+        if not result_queue.empty():
+            results = result_queue.get()
+            print(f"Got results: {type(results)}")

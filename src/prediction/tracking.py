@@ -8,7 +8,6 @@ Author: fw7th
 Date: 2025-04-02
 """
 
-from src.utils.display import VideoDisplay
 from src.utils.time import ClockBasedTimer
 import supervision as sv
 import multiprocessing
@@ -35,12 +34,13 @@ class ObjectTracker:
     Optimized multithreaded tracking system using ByteTrack.
     """
 
-    def __init__(self, maxsize=25):
+    def __init__(self, detection_queue, tracker_queue):
         """
         Initializes an ObjectTracker with dedicated queues for better performance.
         """
-        self.display_worker = VideoDisplay()
-        self.display_queue = self.display_worker.display_queue
+        self.detection_queue = detection_queue
+        self.tracker_queue = tracker_queue
+
         # Initialize tracker with better parameters
         self.timer = ClockBasedTimer()
         self.use_gpu = torch.cuda.is_available()
@@ -56,31 +56,12 @@ class ObjectTracker:
                 with_reid=True,         # Enables re-ID for better tracking
                 use_cuda=True
             )
-            from src.prediction.detection import ObjectDetector
-            self.detector = ObjectDetector()
-            self.thread_running = threading.Event()
-            self.tracker_queue = queue.Queue(maxsize)
-            self.worker = None
-            self.detection_queue = self.detector.detection_queue
+            self._running = threading.Event()
         else:
-            from src.prediction.bytetrack import OpticalFlowByteTrack as OFB
+            from src.utils.bytetrack import OpticalFlowByteTrack as OFB
             self.tracker = OFB()
-            self.detection_recv = None
-            self.process_running = multiprocessing.Event()
-            self.processes = []
+            self._running = multiprocessing.Event()
 
-    def start(self):
-        if self.use_gpu:
-            self.thread_running.set()
-            self.worker = threading.Thread(target=self.gpu_track, daemon=True)
-            self.worker.start()
-
-        else:
-            self.process_running.set()
-            for _ in range(2):
-                p = multiprocessing.Process(target=self.cpu_track, args=(_,))
-                p.start()
-                self.processes.append(p)
 
     def update(self, detections, frame):
         """
@@ -106,20 +87,16 @@ class ObjectTracker:
     def cpu_track(self, process_idx=0):
         print(f"Starting tracking process")
 
-        while self.process_running.is_set():
-            try:
+        while self._running.is_set():
+            try: 
                 print("Waiting for detections from pipe...")
-                if not hasattr(self, 'tracker_pipe') or self.tracker_pipe is None:
-                    print("ERROR: tracker_pipe not initialized!")
-                    time.sleep(1)
-                    continue
-
-                if self.tracker_pipe.poll(1.0):  # Check if data available with timeout
-                    frame, detections = self.tracker_pipe.recv()
+                if self.detection_queue.qsize() > 0:  # Check if data available with timeout
+                    frame, detections = self.detection_queue.get()
                     print(f"""
                     Frame gotten from detector, ready for tracks.
                     Detections: {len(detections) if detections else 0}
                     """)
+
                 ## frame_counter += 1
 
                     ## if frame_counter % len(self.processes) == process_idx:
@@ -163,7 +140,7 @@ class ObjectTracker:
                             final_frame = frame_with_detections
                         
                         try:
-                            self.display_queue.put_nowait(final_frame)
+                            self.tracker_queue.put_nowait(final_frame)
 
                         except queue.Full:
                             print("Tracker is slow, need more powerr!!")
@@ -190,7 +167,7 @@ class ObjectTracker:
         print("Tracking loop ended")        
 
     def gpu_track(self):
-        while self.thread_running.is_set():
+        while self._running.is_set():
             try:
                 frame, detections = self.detection_queue.get(timeout=0.2)
                 print("Frame gotten from detector, ready to track.")
@@ -217,7 +194,7 @@ class ObjectTracker:
                                 )
 
                                 try:
-                                    self.display_queue.put_nowait(frame)
+                                    self.tracker_queue.put_nowait(frame)
                                     print("Frame placed in tracking queue!")
 
                                 except queue.Full:
@@ -238,20 +215,3 @@ class ObjectTracker:
             except queue.Empty:
                 print("Queue is empty, detection bottleneck!")
                 time.sleep(0.1)
-
-    def stop(self):
-        """
-        Stops the tracking process safely.
-        """
-        if self.use_gpu:
-            self.thread_running.clear()
-            if self.worker and self.worker.is_alive():
-                self.worker.join(timeout=2)
-
-        else:
-            self.process_running.clear()
-            for p in self.processes:
-                if p and p.is_alive():
-                    p.join(timeout=2)
-                    if p.is_alive():
-                        p.terminate()

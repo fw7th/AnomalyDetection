@@ -1,8 +1,6 @@
-import numpy as np
 import torch.cuda
 import cv2 as cv
 import threading
-import queue
 import time
 
 class VideoDisplay:
@@ -10,7 +8,7 @@ class VideoDisplay:
     Optimized video processing class that handles frame capture, processing,
     and display with efficient multithreading and resource management.
     """
-    def __init__(self, maxframes=1000, enable_saving=False, save_dir=None):
+    def __init__(self, tracker_queue, maxframes=1000, enable_saving=False, save_dir=None):
         """
         Initialize the video processor with source and output paths.
         
@@ -21,12 +19,10 @@ class VideoDisplay:
         maxsize : int, optional
             Size of the frame buffer queue (default: 15)
         """
-        self.display_queue = queue.Queue(maxsize=20)
+        self.tracker_queue = tracker_queue
         self.use_gpu = torch.cuda.is_available()
         
         # Thread-safe queue for frame buffering
-        self.worker = None
-        self.threads = []
         self.display_lock = threading.Lock()
         self.enable_saving = enable_saving
         self.save_dir = save_dir
@@ -56,7 +52,7 @@ class VideoDisplay:
         """
         while self.running.is_set():
             try:
-                frames = self.display_queue.get(timeout=0.1)
+                frames = self.tracker_queue.get(timeout=0.1)
                 if frames is None:
                     print("No tracking frames recieved")
                     time.sleep(1)
@@ -71,6 +67,9 @@ class VideoDisplay:
             except:
                 print("No frames to extract from tracker queue")
                 time.sleep(1)
+
+            finally:
+                cv.destroyAllWindows()
 
     def save(self):
         if self.enable_saving == True:
@@ -90,10 +89,3 @@ class VideoDisplay:
 
         finally: 
             self.is_saving.clear()
-
-    def stop(self):
-        self.running.clear()
-        if self.worker is not None and self.worker.is_alive():
-            self.worker.join()
-
-        cv.destroyAllWindows()

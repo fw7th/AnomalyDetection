@@ -1,14 +1,12 @@
 import cv2 as cv
 import threading
-from multiprocessing import Queue
 
 class Frames:
-    def __init__(self, source):
+    def __init__(self, frame_queue, source):
         self.source = source
         self.lock = threading.Lock()
-        self.frame_queue = Queue(maxsize=20)
+        self.frame_queue = frame_queue
         self.running = threading.Event()
-        self.thread = None
         self.cap = None
 
     def read_frames(self): 
@@ -23,19 +21,19 @@ class Frames:
         
         print("Frames being pulled from source")
 
-        try:
-            while self.running.is_set():
+        while self.running.is_set():
+            try:
+                print("Trying to pull frames from video")
                 ret, frame = self.cap.read()
                 if not ret:
                     print("Error: Source isn't True")
                     break
                 
-                self.frame_queue.put(frame)
+                with self.lock:
+                    self.frame_queue.put(frame)
 
-        finally: 
-            self.cap.release()
+            except Exception as e:
+                print(f"Error with frame reading: {e}")
 
-    def stop_reading(self):
-        self.running = False
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=1)
+            finally: 
+                self.cap.release()
