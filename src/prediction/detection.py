@@ -57,7 +57,7 @@ class ObjectDetector:
         else: 
             self._running = mp.Event()
 
-    def _detect_humans(self):
+    def detect_single_frame(self):
         print("Starting detection process with PID:", os.getpid())
 
         polygons = load_zones_config(config_env.POLYGONS)
