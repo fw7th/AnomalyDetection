@@ -36,7 +36,6 @@ class Frames:
             
             frame_count = 0
             last_log_time = time.time()
-            print("Starting to read frames from source")
             
             while self.running.is_set():
                 try:
@@ -51,7 +50,7 @@ class Frames:
                     # Log FPS periodically
                     frame_count += 1
                     current_time = time.time()
-                    if current_time - last_log_time >= 5.0:  # Log every 5 seconds
+                    if current_time - last_log_time >= 2.0:  # Log every 5 seconds
                         elapsed = current_time - last_log_time
                         fps = frame_count / elapsed
                         print(f"Reading at {fps:.2f} FPS")
@@ -60,10 +59,10 @@ class Frames:
                     
                     # Put frame in queue with timeout to prevent blocking indefinitely
                     try:
-                        with self.lock:
-                            self.frame_queue.put(frame, timeout=1.0)
+                        self.frame_queue.put_nowait(frame)
+
                     except queue.Full:
-                        print("Frame queue full, skipping frame")
+                        print("Frame queue full, preprocessing slow, skipping frame")
                         continue
                     
                     # Control frame rate (respect source FPS or skip if processing is too slow)

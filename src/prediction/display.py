@@ -2,6 +2,8 @@ import torch.cuda
 import cv2 as cv
 import threading
 import time
+import numpy as np
+import queue
 
 class VideoDisplay:
     """
@@ -50,42 +52,28 @@ class VideoDisplay:
         window_name : str, optional
             Name of the display window (default: "Tracking")
         """
-        while self.running.is_set():
-            try:
-                frames = self.tracker_queue.get(timeout=0.1)
-                if frames is None:
-                    print("No tracking frames recieved")
-                    time.sleep(1)
+        try:
+            frame = self.tracker_queue.get_nowait()
+            assert isinstance(frame, np.ndarray), f"Frame isn't valid, {type(frame)}"
 
-                with self.display.lock:
-                    cv.imshow(window_name, frames)
+            if frame is None and frame.size == 0:
+                print("No tracking frames recieved, or frame is invalid")
+                time.sleep(0.001)
 
-                key = cv.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
+            cv.imshow(window_name, frame)
+        
+        except queue.Empty:
+            print("Tracker is slow, add more power")
 
-            except:
-                print("No frames to extract from tracker queue")
-                time.sleep(1)
-
-            finally:
-                cv.destroyAllWindows()
+        except Exception as e:
+            print(f"No frames to extract from tracker queue: {e}")
+            time.sleep(1)
 
     def save(self):
         if self.enable_saving == True:
             pass
 
-    def run(self):
-        try:
-            self.running.set()
-            self.worker = threading.Thread(
-                target=self.display_video,
-                daemon=True
-            )
-            self.worker.start
-
-        except KeyboardInterrupt:
-            print("Processing interrupted by user")
-
-        finally: 
-            self.is_saving.clear()
+    def should_exit(self):
+        key = cv.waitKey(1) & 0xFF
+        if key == ord('q'):
+            return True

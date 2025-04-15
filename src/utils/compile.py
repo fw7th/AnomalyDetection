@@ -10,6 +10,7 @@ import torch.cuda
 import logging
 import time
 import contextlib
+from cv2 import destroyAllWindows
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -239,7 +240,7 @@ class Compile:
             logger.info("Object detector ready")
             
             # Start detecting objects continuously
-            while not self.events["pipeline_stop"].is_set():
+            while not self.events["pipeline_stop"].is_set() and self.detect._running.is_set():
                 try:
                     # Check if input queue has frames
                     if self.preprocessed_queue.empty():
@@ -294,7 +295,7 @@ class Compile:
             logger.info("Object tracker ready")
             
             # Start tracking objects continuously
-            while not self.events["pipeline_stop"].is_set():
+            while not self.events["pipeline_stop"].is_set() and self.track._running.is_set():
                 try:
                     # Check if input queue has detection results
                     if self.detection_queue.empty():
@@ -352,7 +353,7 @@ class Compile:
             logger.info("Display ready")
             
             # Start displaying frames continuously
-            while not self.events["pipeline_stop"].is_set():
+            while not self.events["pipeline_stop"].is_set() and self.display.running.is_set():
                 try:
                     # Check if input queue has tracked frames
                     if self.tracker_queue.empty():
@@ -394,6 +395,7 @@ class Compile:
 
         finally:
             self.display.running.clear()
+            destroyAllWindows()
 
     def setup_workers(self):
         """Create worker threads or processes based on available hardware."""

@@ -87,84 +87,71 @@ class ObjectTracker:
     def cpu_track(self, process_idx=0):
         print(f"Starting tracking process")
 
-        while self._running.is_set():
-            try: 
-                print("Waiting for detections from pipe...")
-                if self.detection_queue.qsize() > 0:  # Check if data available with timeout
-                    frame, detections = self.detection_queue.get()
-                    print(f"""
-                    Frame gotten from detector, ready for tracks.
-                    Detections: {len(detections) if detections else 0}
-                    """)
+        try: 
+            if self.detection_queue.qsize() > 0:  # Check if data available with timeout
+                frame, detections = self.detection_queue.get()
+            ## frame_counter += 1
 
-                ## frame_counter += 1
+                ## if frame_counter % len(self.processes) == process_idx:
+                try:
+                    # Update tracking with new detections
+                    tracked_detections = self.tracker.update_with_detections(detections, frame)
 
-                    ## if frame_counter % len(self.processes) == process_idx:
-                    try:
-                        # Update tracking with new detections
-                        tracked_detections = self.tracker.update_with_detections(detections, frame)
-                        print("Tracked objects obtained")
+                    time_in_area = self.timer.tick(tracked_detections)
+                             
+                    # Process detections with tracking
+                    if len(detections) > 0:
+                        # Add detections visualization
+                        frame_with_detections = CORNER_ANNOTATOR.annotate(
+                            frame, 
+                            detections=tracked_detections,
+                        )
 
-                        time_in_area = self.timer.tick(tracked_detections)
-                                 
-                        # Process detections with tracking
-                        if len(detections) > 0:
-                            # Add detections visualization
-                            frame_with_detections = CORNER_ANNOTATOR.annotate(
-                                frame.copy(), 
-                                detections=tracked_detections,
-                            )
+                        # Generate labels with tracking IDs and time
+                        if tracked_detections.tracker_id is not None:
+                            labels = [
+                                f"ID {tracker_id}, {times/10:.1f}"
+                                for tracker_id, times in zip(
+                                    tracked_detections.tracker_id, 
+                                    time_in_area
+                                )
+                            ]
 
-                            # Generate labels with tracking IDs and time
-                            if tracked_detections.tracker_id is not None:
-                                labels = [
-                                    f"ID {tracker_id}, {times:.1f}s"
-                                    for tracker_id, times in zip(
-                                        tracked_detections.tracker_id, 
-                                        time_in_area
-                                    )
-                                ]
+                        # Create final frame with tracking labels
+                        final_frame = LABEL_ANNOTATOR.annotate(
+                            frame_with_detections, 
+                            detections=tracked_detections, 
+                            labels=labels
+                        )
 
-                            else:
-                                print("No tracked_IDs found")
-
-                            # Create final frame with tracking labels
-                            final_frame = LABEL_ANNOTATOR.annotate(
-                                frame_with_detections, 
-                                detections=tracked_detections, 
-                                labels=labels
-                            )
-
-                        else:
-                            print("Could not display IDs, might be a problem with occlusions or dark features.")
-                            final_frame = frame_with_detections
-                        
-                        try:
-                            self.tracker_queue.put_nowait(final_frame)
-
-                        except queue.Full:
-                            print("Tracker is slow, need more powerr!!")
-                            time.sleep(0.1)
+                    else:
+                        final_frame = frame
                     
-                    except Exception as e:
-                        print(f"Error in tracking loop: {e}")
+                    try:
+                        self.tracker_queue.put(final_frame, timeout=0.2)
+
+                    except queue.Full:
+                        print("Display is slow, or isn't working")
                         time.sleep(0.1)
-
-                else:
-                    print("No data in tracker pipe yet")
+                
+                except Exception as e:
+                    print(f"Error in tracking loop: {e}")
                     time.sleep(0.1)
+                    return
 
-            except queue.Empty:
-                print("Detection queue empty, bottleneck!")
-                time.sleep(0.2)
-
-            except Exception as e:
-                import traceback
-                print(f"Tracking error: {e}")
-                print(traceback.format_exc())
+            else:
+                print("No data in detection queue yet")
                 time.sleep(0.1)
 
-        print("Tracking loop ended")        
+        except queue.Empty:
+            print("Detection queue empty, bottleneck!")
+            time.sleep(0.2)
+
+        except Exception as e:
+            import traceback
+            print(f"Tracking error: {e}")
+            print(traceback.format_exc())
+            time.sleep(0.1)
 
     def gpu_track(self):
         while self._running.is_set():

@@ -19,17 +19,15 @@ class FrameProcessor_:
         """Process a single frame from the queue (CPU version)"""
         try:
             # Get a frame without blocking indefinitely
-            frame = self.frame_queue.get(timeout=0.5)
-            print("Frame received for preprocessing [CPU].")
-            
+            frame = self.frame_queue.get_nowait()
+
             # Process the frame
             preprocessed_frame = preprocess_frame(frame)
             print("Preprocessing Complete [CPU]")
             
             # Put the processed frame in the output queue
             if preprocessed_frame.size > 0:
-                self.preprocessed_queue.put(preprocessed_frame, timeout=0.5)
-                print("Frame sent to detect_pipe") 
+                self.preprocessed_queue.put(preprocessed_frame, timeout=0.1)
             else:
                 print("Preprocessed frame invalid [CPU].")
                 
@@ -61,7 +59,7 @@ class FrameProcessor_:
             
             # Put the processed frame in the output queue
             if preprocessed_frame.size > 0:
-                self.preprocessed_queue.put(preprocessed_frame, timeout=0.5)
+                self.preprocessed_queue.put(preprocessed_frame, timeout=0.1)
                 print("Frame sent to detect_pipe")
             else:
                 print("Preprocessed frame invalid [GPU].")
