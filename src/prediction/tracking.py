@@ -85,11 +85,9 @@ class ObjectTracker:
         return tracked_objects
 
     def cpu_track(self, process_idx=0):
-        print(f"Starting tracking process")
-
         try: 
             if self.detection_queue.qsize() > 0:  # Check if data available with timeout
-                frame, detections = self.detection_queue.get()
+                frame, detections = self.detection_queue.get(timeout=0.1)
             ## frame_counter += 1
 
                 ## if frame_counter % len(self.processes) == process_idx:
@@ -128,7 +126,7 @@ class ObjectTracker:
                         final_frame = frame
                     
                     try:
-                        self.tracker_queue.put(final_frame, timeout=0.2)
+                        self.tracker_queue.put(final_frame, timeout=0.1)
 
                     except queue.Full:
                         print("Display is slow, or isn't working")

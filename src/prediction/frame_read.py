@@ -12,6 +12,7 @@ class Frames:
         self.cap = None
         self.fps_target = None  # Will be set based on source fps
         self.frame_delay = 0  # Time to wait between frame reads
+        self.skip_stride = 2
         
     def read_frames(self): 
         if self.source is None:
@@ -59,7 +60,8 @@ class Frames:
                     
                     # Put frame in queue with timeout to prevent blocking indefinitely
                     try:
-                        self.frame_queue.put_nowait(frame)
+                        if frame_count % self.skip_stride == 0:
+                            self.frame_queue.put(frame, timeout=0.1)
 
                     except queue.Full:
                         print("Frame queue full, preprocessing slow, skipping frame")
@@ -79,10 +81,3 @@ class Frames:
                     
         except Exception as e:
             print(f"Critical error in frame reader: {e}")
-                
-    def skip_frame(self):
-        """Skip the next frame when called (useful for high-fps sources)"""
-        if self.cap is not None and self.cap.isOpened():
-            self.cap.grab()  # Just grab but don't retrieve the frame
-            return True
-        return False

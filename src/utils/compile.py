@@ -1,5 +1,4 @@
 from src.prediction.process_frame import FrameProcessor_
-from src.prediction.tracking import ObjectTracker
 from src.prediction.detection import ObjectDetector
 from src.prediction.display import VideoDisplay
 from src.prediction.frame_read import Frames
@@ -52,53 +51,37 @@ class Compile:
 
     def _initialize_queues(self):
         """Initialize communication queues based on available hardware."""
-        # For GPU (threads), use thread-safe Queue
         # For CPU (processes), use multiprocessing Queue
         
         # Set queue max sizes to control memory usage
-        max_queue_size = 15  # Limit memory consumption
+        reader_queue_size = 10
+        detector_queue_size = 20
+        other_queue_size = 10
         
         # Queue for frames from camera/video to preprocessing
-        self.frame_queue = queue.Queue(maxsize=max_queue_size) if self.use_gpu else Queue(maxsize=max_queue_size)
+        self.frame_queue = Queue(maxsize=reader_queue_size)
         
         # Queue for preprocessed frames to detection
-        self.preprocessed_queue = queue.Queue(maxsize=max_queue_size) if self.use_gpu else Queue(maxsize=max_queue_size)
+        self.preprocessed_queue = Queue(maxsize=other_queue_size)
+
+        # Queue for detection results to display
+        self.detection_queue = Queue(maxsize=detector_queue_size)
         
-        # Queue for detection results to tracking
-        self.detection_queue = queue.Queue(maxsize=max_queue_size) if self.use_gpu else Queue(maxsize=max_queue_size)
-        
-        # Queue for tracking results to display
-        self.tracker_queue = queue.Queue(maxsize=max_queue_size) if self.use_gpu else Queue(maxsize=max_queue_size)
 
     def _initialize_events(self):
         """Initialize synchronization events based on processing mode."""
-        if self.use_gpu:
-            # For GPU processing, use thread events
-            self.events = {
-                # Events for component initialization (ready to process)
-                "reader_ready": Event(),
-                "preprocessing_ready": Event(),
-                "detection_ready": Event(),
-                "tracking_ready": Event(),
-                "display_ready": Event(),
-                
-                # Event to signal pipeline shutdown
-                "pipeline_stop": Event()
-            }
-        else:
-            # For CPU processing, use multiprocessing events
-            self.manager = Manager()
-            self.events = {
-                # Events for component initialization (ready to process)
-                "reader_ready": self.manager.Event(),
-                "preprocessing_ready": self.manager.Event(),
-                "detection_ready": self.manager.Event(),
-                "tracking_ready": self.manager.Event(),
-                "display_ready": self.manager.Event(),
-                
-                # Event to signal pipeline shutdown
-                "pipeline_stop": self.manager.Event()
-            }
+        # For CPU processing, use multiprocessing events
+        self.manager = Manager()
+        self.events = {
+            # Events for component initialization (ready to process)
+            "reader_ready": self.manager.Event(),
+            "preprocessing_ready": self.manager.Event(),
+            "detection_ready": self.manager.Event(),
+            "display_ready": self.manager.Event(),
+            
+            # Event to signal pipeline shutdown
+            "pipeline_stop": self.manager.Event()
+        }
 
     def _initialize_modules(self):
         """Initialize the core processing modules."""
@@ -114,13 +97,8 @@ class Compile:
             self.detection_queue
         )
         
-        self.track = ObjectTracker(
-            self.detection_queue,
-            self.tracker_queue
-        )
-        
         self.display = VideoDisplay(
-            self.tracker_queue,
+            self.detection_queue,
             enable_saving=self.enable_saving,
             save_dir=self.save_dir
         )
@@ -143,7 +121,7 @@ class Compile:
             logger.info("All frames read, waiting for pipeline to complete processing")
             
             # Wait for display to process the final frames before stopping
-            while not self.tracker_queue.empty() and not self.events["pipeline_stop"].is_set():
+            while not self.detection_queue.empty() and not self.events["pipeline_stop"].is_set():
                 time.sleep(0.1)
                 
             # Now signal pipeline to stop if not already stopped
@@ -157,11 +135,13 @@ class Compile:
                 self.events["pipeline_stop"].set()
 
         finally:
-            # Release resources outside the loop when done
-            if self.reader.cap is not None:
-                self.reader.cap.release()
-                print("Video capture released")
-            self.reader.running.clear()
+            if self.detection_queue.empty:
+                time.sleep(2)
+                # Release resources outside the loop when done and end reading
+                if self.reader.cap is not None:
+                    self.reader.cap.release()
+                    print("Video capture released")
+                    self.reader.running.clear()
 
     def preprocess_frame(self):
         """Preprocess frames from the frame queue continuously."""
@@ -196,10 +176,11 @@ class Compile:
                             break
                     
                     # Process available frames using appropriate method
+                    """
                     if self.use_gpu:
                         self.preprocessing.process_single_frame_gpu()
-                    else:
-                        self.preprocessing.process_single_frame_cpu()
+                    """
+                    self.preprocessing.process_frame()
                         
                 except queue.Empty:
                     # Handle empty queue
@@ -219,7 +200,8 @@ class Compile:
                 self.events["pipeline_stop"].set()
 
         finally:
-            self.preprocessing._running.clear()
+            if self.reader.running == False:
+                self.preprocessing._running.clear()
 
     def detect_on_frame(self):
         """Detect objects in preprocessed frames continuously."""
@@ -276,71 +258,13 @@ class Compile:
         finally:
             self.detect._running.clear()
 
-    def track_detections(self):
-        """Track detected objects across frames continuously."""
-        try:
-            logger.info("Initializing object tracker")
-            
-            # Wait for detector to be ready
-            while not self.events["detection_ready"].is_set() and not self.events["pipeline_stop"].is_set():
-                time.sleep(0.05)
-                
-            if self.events["pipeline_stop"].is_set():
-                logger.info("Tracking initialization aborted - pipeline stopping")
-                return
-                
-            # Initialize tracker and signal it's ready
-            self.track._running.set()
-            self.events["tracking_ready"].set()
-            logger.info("Object tracker ready")
-            
-            # Start tracking objects continuously
-            while not self.events["pipeline_stop"].is_set() and self.track._running.is_set():
-                try:
-                    # Check if input queue has detection results
-                    if self.detection_queue.empty():
-                        # If detector is still running or input not empty, wait for more results
-                        if hasattr(self.detect, '_running') and self.detect._running.is_set():
-                            time.sleep(0.01)
-                            continue
-                        else:
-                            # If detector is done and queue is empty, exit
-                            logger.info("No more detection results to track, tracker exiting")
-                            break
-                    
-                    # Process a single frame for tracking
-                    if self.use_gpu:
-                        self.track.gpu_track()
-                    else:
-                        self.track.cpu_track()
-                    
-                except queue.Empty:
-                    # Handle empty queue (should be covered by the check above)
-                    time.sleep(0.01)
-                except Exception as e:
-                    logger.error(f"Error tracking objects in frame: {e}")
-                    if not self.events["pipeline_stop"].is_set():
-                        self.events["pipeline_stop"].set()
-                    break
-            
-            logger.info("Object tracker shutting down")
-            
-        except Exception as e:
-            logger.error(f"Error in tracking: {e}")
-            # On error, signal pipeline to stop
-            if not self.events["pipeline_stop"].is_set():
-                self.events["pipeline_stop"].set()
-
-        finally:
-            self.track._running.clear()
-
     def display_frames(self):
-        """Display tracked objects in frames continuously."""
+        """Display detected objects in frames continuously."""
         try:
             logger.info("Initializing display")
             
-            # Wait for tracker to be ready
-            while not self.events["tracking_ready"].is_set() and not self.events["pipeline_stop"].is_set():
+            # Wait for detector to be ready
+            while not self.events["detection_ready"].is_set() and not self.events["pipeline_stop"].is_set():
                 time.sleep(0.05)
                 
             if self.events["pipeline_stop"].is_set():
@@ -355,15 +279,15 @@ class Compile:
             # Start displaying frames continuously
             while not self.events["pipeline_stop"].is_set() and self.display.running.is_set():
                 try:
-                    # Check if input queue has tracked frames
-                    if self.tracker_queue.empty():
-                        # If tracker is still running or input not empty, wait for more frames
-                        if hasattr(self.track, '_running') and self.track._running.is_set():
+                    # Check if input queue has inference frames
+                    if self.detection_queue.empty():
+                        # If detector is still running or input not empty, wait for more frames
+                        if hasattr(self.detect, '_running') and self.detect._running.is_set():
                             time.sleep(0.01)
                             continue
                         else:
-                            # If tracker is done and queue is empty, exit
-                            logger.info("No more tracked frames to display, display exiting")
+                            # If object detector is done and queue is empty, exit
+                            logger.info("No more detection frames to display, display exiting")
                             break
                     
                     # Display a single frame
@@ -406,24 +330,15 @@ class Compile:
         logger.info("Started reader thread")
         
         # Choose worker type based on GPU availability
-        if self.use_gpu:
-            # For GPU, use threads for all workers
-            self.worker_preprocess = Thread(target=self.preprocess_frame, name="Preprocessor")
-            self.worker_detect = Thread(target=self.detect_on_frame, name="Detector")
-            self.worker_track = Thread(target=self.track_detections, name="Tracker")
-        else:
-            # For CPU, use processes for compute-intensive tasks
-            self.worker_preprocess = Process(target=self.preprocess_frame, name="Preprocessor")
-            self.worker_detect = Process(target=self.detect_on_frame, name="Detector")
-            self.worker_track = Process(target=self.track_detections, name="Tracker")
+        # For CPU, use processes for compute-intensive tasks
+        self.worker_preprocess = [Process(target=self.preprocess_frame, name=f"Preprocessor-{i}")
+                                  for i in range(2)]
+        self.worker_detect = Process(target=self.detect_on_frame, name="Detector")
         
-        self.workers.extend([
-            self.worker_preprocess,
-            self.worker_detect,
-            self.worker_track
-        ])
+        self.workers.extend(self.worker_preprocess)
+        self.workers.extend([self.worker_detect])
 
-        logger.info("Started preprocessing, detection and tracking threads")
+        logger.info("Started preprocessing and detection threads")
 
         # Display is always a thread
         self.worker_display = Thread(target=self.display_frames, name="Display")
@@ -469,10 +384,6 @@ class Compile:
         if hasattr(self.detect, '_running'):
             self.detect._running.clear()
         
-        # Stop tracking
-        if hasattr(self.track, '_running'):
-            self.track._running.clear()
-        
         # Stop display
         if hasattr(self.display, 'running'):
             self.display.running.clear()
@@ -504,7 +415,6 @@ class Compile:
             self.frame_queue, 
             self.preprocessed_queue, 
             self.detection_queue,
-            self.tracker_queue
         ]
         
         for queue in queues:
