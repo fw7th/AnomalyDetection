@@ -10,19 +10,15 @@ Date: 2025-04-02
 """
 
 from src.utils.general import load_zones_config  # Import the zones from the JSON file
+from src.utils.alert_system import visual_alerts
 from src.config import config_env
 from ultralytics.utils.ops import LOGGER
 from ultralytics import YOLO
 import multiprocessing as mp
 import supervision as sv
 import numpy as np
+import time, os, queue, torch, logging
 # import threading
-import cv2 as cv
-import logging
-import torch
-import queue
-import time
-import os
 
 # Set PyTorch thread count to optimize for 2 cores
 torch.set_num_threads(2)
@@ -43,6 +39,10 @@ class ObjectDetector:
         self.use_gpu = torch.cuda.is_available()
         self.last_log_time = time.time()
         self.frame_count = 0
+        self.alert_active = None
+        self.cooldown = None
+        self.alert_start_time = 0
+        self.cooldown_start_time = 0
 
         self.detections = None
         self.results = None
@@ -50,7 +50,7 @@ class ObjectDetector:
         self.buffer = []
 
         # Initialize annotator as instance variable
-        self.corner_annotator = sv.BoxCornerAnnotator(thickness=1)
+        self.box_annotator = sv.RoundBoxAnnotator(thickness=3)
 
         self.model = None
         self.zones = self._initialize_zones()
@@ -223,7 +223,7 @@ class ObjectDetector:
             
             # Add detections visualization if any detections remain
             if len(self.detections) > 0:
-                processed_frame = self.corner_annotator.annotate(
+                processed_frame = self.box_annotator.annotate(
                     scene=processed_frame, 
                     detections=self.detections
                 )
@@ -231,25 +231,31 @@ class ObjectDetector:
             # Log FPS periodically using the class frame counter
             self.frame_count += 1
             current_time = time.time()
-            if current_time - self.last_log_time >= 4.0:  # Log every 4 seconds
+            show_time = current_time - self.last_log_time
+            if show_time >= 4.0:  # Log every 4 seconds
                 elapsed = current_time - self.last_log_time
                 fps = self.frame_count / elapsed
                 print(f"Inference at {fps:.2f} FPS")
                 self.frame_count = 0
                 self.last_log_time = current_time
 
-            time_now = time.time()
-            if self.detections and int(time_now * 2) % 2 == 0:
-                processed_frame = cv.rectangle(processed_frame, (0, 0), (640, 360), (0, 0, 200), 30)
-                processed_frame = cv.putText(
-                    processed_frame,
-                    "Threat Detected",
-                    (200, 30),
-                    cv.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (255, 255, 255),
-                    2
-                )
+            if self.detections:
+                if not self.alert_active:
+                    self.alert_active = True
+                    self.alert_start_time = time.time()
+
+            if self.alert_active:
+                if time.time() - self.alert_start_time < 7:
+                    processed_frame = visual_alerts(processed_frame)
+                elif not self.cooldown:
+                    self.cooldown = True
+                    self.cooldown_start_time = time.time()
+
+            if self.cooldown:
+                if time.time() - self.cooldown_start_time >= 3:
+                    self.alert_active = False
+                    self.cooldown = False
+
             try:
                 # Send the processed frame to the output queue
                 self.mutex.acquire()
@@ -271,3 +277,4 @@ class ObjectDetector:
             except Exception as e:
                 print(f"Error: Failed to send processed frame to queue: {e}")
                 return
+
