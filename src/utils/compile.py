@@ -55,7 +55,7 @@ class Compile:
         
         # Set queue max sizes to control memory usage
         reader_queue_size = 10
-        detector_queue_size = 20
+        detector_queue_size = 30
         other_queue_size = 10
         
         # Queue for frames from camera/video to preprocessing
@@ -136,7 +136,7 @@ class Compile:
 
         finally:
             if self.detection_queue.empty:
-                time.sleep(2)
+                time.sleep(0.5)
                 # Release resources outside the loop when done and end reading
                 if self.reader.cap is not None:
                     self.reader.cap.release()
@@ -292,6 +292,8 @@ class Compile:
                     
                     # Display a single frame
                     self.display.display_video()
+                    if self.enable_saving:
+                        self.display.saving_thread()
                     
                     # Check for user exit (e.g., pressing 'q')
                     if hasattr(self.display, 'should_exit') and self.display.should_exit():
@@ -319,6 +321,10 @@ class Compile:
 
         finally:
             self.display.running.clear()
+            if self.enable_saving:
+                self.display.result.release()
+                print("Video saved successfully")
+            
             destroyAllWindows()
 
     def setup_workers(self):

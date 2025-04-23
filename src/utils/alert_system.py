@@ -1,5 +1,5 @@
 import cv2 as cv
-import time, math
+import time, math, os, sys
 
 def visual_alerts(frame, base_thickness=4, pulse_range=6, frequency=0.4):
     h, w = frame.shape[:2]
@@ -32,4 +32,16 @@ def visual_alerts(frame, base_thickness=4, pulse_range=6, frequency=0.4):
     return frame
 
 def sound_alerts():
-    pass
+    if sys.platform == "win32":
+        # For windows systems
+        import winsound
+        winsound.Beep(1000, 500)
+    else:
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        sound = os.path.join(BASE_DIR, "beep.wav")
+
+        import simpleaudio as sa
+        wave_obj = sa.WaveObject.from_wave_file(sound)  # Must be .wav
+        # For Unix-like systems, the beep command
+        os.system('echo -e "\a"')
+        wave_obj.play()  # Non-blocking

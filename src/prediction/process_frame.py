@@ -16,6 +16,7 @@ class FrameProcessor_:
         self.batch_size = batch_size
         self._running = mp.Event()
         self.frame_count = 0
+        self.fps = 0
         self.last_log_time = time.time()
         self.mutex = mp.Manager().RLock()
         
@@ -62,10 +63,10 @@ class FrameProcessor_:
                 
                 # Log FPS periodically
                 current_time = time.time()
+                elapsed = current_time - self.last_log_time
+                self.fps = self.frame_count / elapsed
                 if current_time - self.last_log_time >= 2.0:
-                    elapsed = current_time - self.last_log_time
-                    fps = self.frame_count / elapsed
-                    print(f"Preprocessing at {fps:.2f} FPS (batch size: {len(batch_frames)})")
+                    print(f"Preprocessing at {self.fps:.2f} FPS (batch size: {len(batch_frames)})")
                     self.frame_count = 0
                     self.last_log_time = current_time
                 
@@ -76,8 +77,14 @@ class FrameProcessor_:
                     self.preprocessed_queue.put(frame, timeout=0.01)
                 self.mutex.release()
                 
+            self.frame_delay = 1.0 / self.fps
+            # Control frame rate (respect source FPS or skip if processing is too slow)
+            processing_time = time.time() - start_time
+            if processing_time < self.frame_delay:
+                time.sleep(self.frame_delay - processing_time)
+
                 return True
-            
+
             return False
             
         except queue.Full:

@@ -8,3 +8,5 @@ build/
 *.pt
 *.partial
 *.onnx
+keys/
+.env

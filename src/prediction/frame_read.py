@@ -13,6 +13,7 @@ class Frames:
         self.fps_target = None  # Will be set based on source fps
         self.frame_delay = 0  # Time to wait between frame reads
         self.skip_stride = 2
+        self.break_time = 0
         
     def read_frames(self): 
         if self.source is None:
@@ -45,9 +46,18 @@ class Frames:
                     ret, frame = self.cap.read()
                     
                     if not ret:
-                        print("End of video stream reached or frame read error")
-                        break
-                    
+                        # Record when we first lost the source (if not already recorded)
+                        if not hasattr(self, "break_time") or self.break_time is None:
+                            self.break_time = time.time()
+
+                        # If not source is available for 7 seconds end the program
+                        if time.time() - self.break_time >= 7:
+                            break
+
+                    else:
+                        # Reset when we successfully get a frame again
+                        self.break_time = None
+
                     # Log FPS periodically
                     frame_count += 1
                     current_time = time.time()

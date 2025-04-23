@@ -1,3 +1,4 @@
+
 """
 detection.py
 
@@ -10,7 +11,8 @@ Date: 2025-04-02
 """
 
 from src.utils.general import load_zones_config  # Import the zones from the JSON file
-from src.utils.alert_system import visual_alerts
+from src.utils.alert_system import visual_alerts, sound_alerts
+from src.utils.messaging import send_twilio_message
 from src.config import config_env
 from ultralytics.utils.ops import LOGGER
 from ultralytics import YOLO
@@ -18,7 +20,7 @@ import multiprocessing as mp
 import supervision as sv
 import numpy as np
 import time, os, queue, torch, logging
-# import threading
+import threading
 
 # Set PyTorch thread count to optimize for 2 cores
 torch.set_num_threads(2)
@@ -43,14 +45,21 @@ class ObjectDetector:
         self.cooldown = None
         self.alert_start_time = 0
         self.cooldown_start_time = 0
+        self.last_beep_time = 0
+        self.beep_interval = 1
 
+        self.last_message_time = 0
+        self.message_interval = 240
+        self.message_active = None
+        self.message_cooldown = None
+        self.message_cooldown_start = 0
         self.detections = None
         self.results = None
         self.frame = None
         self.buffer = []
 
         # Initialize annotator as instance variable
-        self.box_annotator = sv.RoundBoxAnnotator(thickness=3)
+        self.box_annotator = sv.RoundBoxAnnotator(thickness=1)
 
         self.model = None
         self.zones = self._initialize_zones()
@@ -63,7 +72,6 @@ class ObjectDetector:
             self._running = threading.Event()
         """
         self._running = mp.Event()
-        self.mutex = mp.Manager().RLock()
 
     def _initialize_model(self):
         # Silence YOLO's logger before loading the model
@@ -96,7 +104,11 @@ class ObjectDetector:
                 nms=True,
                 opset=13
             )
-
+            # Warmup the model with a dummy inference
+            dummy_input = np.zeros((640, 640, 3), dtype=np.uint8)
+            print("Warming up model")
+            model(dummy_input, verbose=False)
+        
             return model
 
         except Exception as e:
@@ -122,9 +134,7 @@ class ObjectDetector:
     def detect_single_frame(self):
         try:
             # Get frame from queue with timeout
-            self.mutex.acquire()
             self.frame = self.preprocessed_queue.get(timeout=0.001)
-            self.mutex.release()
         
         except queue.Empty:
             time.sleep(0.01)
@@ -240,30 +250,19 @@ class ObjectDetector:
                 self.last_log_time = current_time
 
             if self.detections:
-                if not self.alert_active:
-                    self.alert_active = True
-                    self.alert_start_time = time.time()
+                self.message_active = True
+#                self.message_system()
+                self.alert_system(processed_frame)
 
-            if self.alert_active:
-                if time.time() - self.alert_start_time < 7:
-                    processed_frame = visual_alerts(processed_frame)
-                elif not self.cooldown:
-                    self.cooldown = True
-                    self.cooldown_start_time = time.time()
-
-            if self.cooldown:
-                if time.time() - self.cooldown_start_time >= 3:
-                    self.alert_active = False
-                    self.cooldown = False
+            else:
+                self.message_active = False
 
             try:
                 # Send the processed frame to the output queue
-                self.mutex.acquire()
                 self.detection_queue.put(processed_frame, timeout=0.001)
-                self.mutex.release()
                 
                 # Force garbage collection periodically
-                if self.frame_count % 30 == 0:  # Less frequent GC
+                if self.frame_count % 20 == 0:  # Less frequent GC
                     import gc 
                     gc.collect()
                     if self.use_gpu:
@@ -278,3 +277,40 @@ class ObjectDetector:
                 print(f"Error: Failed to send processed frame to queue: {e}")
                 return
 
+    def alert_system(self, processed_frame):
+        if not self.alert_active:
+            self.alert_active = True
+            self.alert_start_time = time.time()
+
+        if self.alert_active:
+            if time.time() - self.alert_start_time < 7:
+                processed_frame = visual_alerts(processed_frame)
+
+                # Only play beep every 1.5 secs
+                if time.time() - self.last_beep_time >= self.beep_interval:
+                    self.last_beep_time = time.time()
+                    sound_alerts()
+
+            elif not self.cooldown:
+                self.cooldown = True
+                self.cooldown_start_time = time.time()
+
+        if self.cooldown:
+            if time.time() - self.cooldown_start_time >= 3:
+                self.alert_active = False
+                self.cooldown = False
+
+    def message_system(self):
+        if self.message_active:
+            current_time = time.time()
+
+            if not self.message_cooldown:
+                threading.Thread(target=send_twilio_message, daemon=True).start()
+                print("Alert message sent")
+
+                self.message_cooldown = True
+                self.message_cooldown_start = current_time
+            
+            # Check if cooldown period is over
+            elif current_time - self.message_cooldown_start > self.message_interval:
+                self.message_cooldown = False  # Allow next message

@@ -31,13 +31,12 @@ class VideoDisplay:
         
         # Event to signal thread termination
         self.running = threading.Event()
-        self.is_saving = threading.Event()
-        self.save_frames_lock = threading.Lock()
        
         # Store frames for saving (optional)
-        self.save_frames = []
+        self.save_buffer = queue.Queue()
         self.max_save_frames = maxframes  # Limit to prevent memory issues
         self.save_thread = None
+        self.result = None
 
         if self.enable_saving and not self.save_dir:
             raise ValueError("You must specify a save_dir when enable_saving is True.")
@@ -53,10 +52,12 @@ class VideoDisplay:
             Name of the display window (default: "detection")
         """
         try:
-            frame = self.detection_queue.get_nowait()
-            assert isinstance(frame, np.ndarray), f"Frame isn't valid, {type(frame)}"
+            self.frame = self.detection_queue.get_nowait()
+            assert isinstance(self.frame, np.ndarray), f"Frame isn't valid, {type(self.frame)}"
 
-            if frame is None and frame.size == 0:
+            self.save_buffer.put(self.frame.copy()) 
+
+            if self.frame is None and self.frame.size == 0:
                 print("No detection frames recieved, or frame is invalid")
                 time.sleep(0.001)
                 
@@ -69,8 +70,8 @@ class VideoDisplay:
                 self.frame_count = 0
                 self.last_log_time = current_time
 
-            cv.imshow(window_name, frame)
-        
+            cv.imshow(window_name, self.frame)
+
         except queue.Empty:
             print("Detector module is slow, add more power")
 
@@ -79,9 +80,25 @@ class VideoDisplay:
             time.sleep(1)
 
     def save(self):
-        if self.enable_saving == True:
-            pass
+        frame = self.save_buffer.get_nowait() 
+        size = (640, 640)
+        fps = 12
+        if self.save_dir:
+            try:
+                self.result = cv.VideoWriter(
+                    self.save_dir,
+                    cv.VideoWriter_fourcc(*"mp4v"),
+                    fps,
+                    size
+                )
+                self.result.write(frame)
+            
+            except Exception as e:
+                print(f"Failed to save video: {e}")
 
+    def saving_thread(self):
+        threading.Thread(target=self.save).start()
+        
     def should_exit(self):
         key = cv.waitKey(1) & 0xFF
         if key == ord('q'):
