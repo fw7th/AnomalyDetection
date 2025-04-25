@@ -16,10 +16,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 POLY_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Construct the path to the model
-V11_PATH = os.path.join(BASE_DIR, "models", "yolov11.pt")  # Uses yolov11 object detection model.
-
 V8_PATH = os.path.join(BASE_DIR, "models", "yolov8n.pt")  # Uses yolov8 object detection model.
 
-NAS_PATH = "yolo_nas_s"  # Uses YOLO-NAS S object detection model.
+VINO_PATH = os.path.join(BASE_DIR, "models", "yolov8n_int8_openvino_model")
+
+ONNX_PATH = os.path.join(BASE_DIR, "models", "yolov8n.onnx")
 
 POLYGONS = os.path.join(POLY_DIR, "config.json")  # Gets the file path of the polygons.

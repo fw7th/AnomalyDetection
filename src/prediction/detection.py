@@ -12,7 +12,7 @@ Date: 2025-04-02
 
 from src.utils.general import load_zones_config  # Import the zones from the JSON file
 from src.utils.alert_system import visual_alerts, sound_alerts
-from src.utils.messaging import send_twilio_message
+from src.utils.messaging import messaging_system
 from src.config import config_env
 from ultralytics.utils.ops import LOGGER
 from ultralytics import YOLO
@@ -33,7 +33,7 @@ class ObjectDetector:
     in a video stream using YOLO and Supervision.
     """
 
-    def __init__(self, preprocessed_queue, detection_queue):
+    def __init__(self, preprocessed_queue, detection_queue, your_num=None, your_mail=None):
         """
         Initializes an ObjectDetector instance with improved performance.
         """
@@ -67,6 +67,9 @@ class ObjectDetector:
         self.preprocessed_queue = preprocessed_queue
         self.detection_queue = detection_queue
         
+        self.your_num = your_num
+        self.your_mail = your_mail
+        self.messenger = messaging_system(self.your_num, self.your_mail)
         """
         if self.use_gpu:
             self._running = threading.Event()
@@ -83,32 +86,7 @@ class ObjectDetector:
         
         try:
             # Load model with best device selection
-            model = YOLO(config_env.V8_PATH)
-            """ 
-            if self.use_gpu:
-                # Optimize for GPU inference
-                model.to('cuda')
-                if hasattr(model, 'model'):
-                    # Only apply half precision if GPU supports it
-                    if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 7:
-                        model.model.half()
-            """
-            # Optimize for CPU inference
-            model.export(
-                format="onnx",
-                optimize=True,
-                dynamic=True,
-                batch=1,
-                half=True,
-                device="cpu",
-                nms=True,
-                opset=13
-            )
-            # Warmup the model with a dummy inference
-            dummy_input = np.zeros((640, 640, 3), dtype=np.uint8)
-            print("Warming up model")
-            model(dummy_input, verbose=False)
-        
+            model = YOLO(config_env.VINO_PATH)
             return model
 
         except Exception as e:
@@ -189,7 +167,7 @@ class ObjectDetector:
             import traceback
             print(f"Outer detection loop error: {e}")
             print(traceback.format_exc())
-            time.sleep(0.1)
+            time.sleep(0.01)
             return
 
         try:
@@ -218,7 +196,7 @@ class ObjectDetector:
                 
                 # Create a mask for combined zone filtering
                 combined_mask = np.zeros(len(self.detections), dtype=bool)
-                if len(self.detections) > 0:
+                if len(self.detections) > 0 and self.detections:
                     for zone in self.zones:
                         # Use OR to combine results from all zones
                         zone_mask = zone.trigger(self.detections)
@@ -231,27 +209,23 @@ class ObjectDetector:
                         # Keep original detections if no zones triggered
                         pass
             
-            # Add detections visualization if any detections remain
-            if len(self.detections) > 0:
-                processed_frame = self.box_annotator.annotate(
-                    scene=processed_frame, 
-                    detections=self.detections
-                )
+                    # Add detections visualization if any detections remain
+                    processed_frame = self.box_annotator.annotate(
+                        scene=processed_frame, 
+                        detections=self.detections
+                    )
             
             # Log FPS periodically using the class frame counter
             self.frame_count += 1
-            current_time = time.time()
-            show_time = current_time - self.last_log_time
-            if show_time >= 4.0:  # Log every 4 seconds
-                elapsed = current_time - self.last_log_time
-                fps = self.frame_count / elapsed
+            if time.time() - self.last_log_time >= 4.0:  # Log every 4 seconds
+                fps = self.frame_count / (time.time() - self.last_log_time)
                 print(f"Inference at {fps:.2f} FPS")
                 self.frame_count = 0
-                self.last_log_time = current_time
+                self.last_log_time = time.time()
 
             if self.detections:
                 self.message_active = True
-#                self.message_system()
+                self.message_system()
                 self.alert_system(processed_frame)
 
             else:
@@ -270,8 +244,7 @@ class ObjectDetector:
                     print(f"Memory cleaned after {self.frame_count} frames")
 
             except queue.Full:
-                print("Detection queue is full, dropping frame")
-                time.sleep(0.01)
+                time.sleep(0.001)
 
             except Exception as e:
                 print(f"Error: Failed to send processed frame to queue: {e}")
@@ -305,8 +278,19 @@ class ObjectDetector:
             current_time = time.time()
 
             if not self.message_cooldown:
-                threading.Thread(target=send_twilio_message, daemon=True).start()
-                print("Alert message sent")
+                if self.your_num and not self.your_mail:
+                    threading.Thread(target=self.messenger.send_twilio_message, daemon=True).start()
+
+                elif self.your_mail and not self.your_num:
+                    threading.Thread(target=self.messenger.send_email, daemon=True).start()
+                    print(f"Alert message sent to {self.your_mail}.")
+
+                elif not self.your_mail and not self.your_num:
+                    print("No mail or number to send messages to")
+
+                else:
+                    threading.Thread(target=self.messenger.send_to_both, daemon=True).start()
+                    print(f"Alert message sent to {self.your_num}.")
 
                 self.message_cooldown = True
                 self.message_cooldown_start = current_time

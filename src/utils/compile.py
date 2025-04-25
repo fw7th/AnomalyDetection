@@ -20,7 +20,7 @@ class Compile:
     Real-time video processing pipeline that coordinates multiple processing stages
     using either CPU (multiprocessing) or GPU (threading) processing.
     """
-    def __init__(self, source, enable_saving=False, save_dir=None):
+    def __init__(self, source, enable_saving=False, save_dir=None, your_num=None, your_mail=None):
         """
         Initialize the pipeline with the video source and configuration.
         
@@ -34,6 +34,8 @@ class Compile:
         self.source = source
         self.save_dir = save_dir
         self.enable_saving = enable_saving
+        self.your_num = your_num
+        self.your_mail = your_mail
         
         logger.info(f"Initializing pipeline: GPU available: {self.use_gpu}")
         
@@ -55,7 +57,7 @@ class Compile:
         
         # Set queue max sizes to control memory usage
         reader_queue_size = 10
-        detector_queue_size = 30
+        detector_queue_size = 40
         other_queue_size = 10
         
         # Queue for frames from camera/video to preprocessing
@@ -94,7 +96,9 @@ class Compile:
         
         self.detect = ObjectDetector(
             self.preprocessed_queue,
-            self.detection_queue
+            self.detection_queue,
+            self.your_num,
+            self.your_mail
         )
         
         self.display = VideoDisplay(
@@ -292,8 +296,6 @@ class Compile:
                     
                     # Display a single frame
                     self.display.display_video()
-                    if self.enable_saving:
-                        self.display.saving_thread()
                     
                     # Check for user exit (e.g., pressing 'q')
                     if hasattr(self.display, 'should_exit') and self.display.should_exit():
@@ -320,12 +322,7 @@ class Compile:
                 self.events["pipeline_stop"].set()
 
         finally:
-            self.display.running.clear()
-            if self.enable_saving:
-                self.display.result.release()
-                print("Video saved successfully")
-            
-            destroyAllWindows()
+            self.display.cleanup()
 
     def setup_workers(self):
         """Create worker threads or processes based on available hardware."""
