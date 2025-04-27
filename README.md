@@ -50,9 +50,13 @@ RTSP stream:
    ```bash
 python main.py --source rtsp://your-stream-url
    ```
-With notifications:
+With email notifications:
    ```bash
-python main.py --source 0 --phone +1234567890 --email you@example.com
+python main.py --source 0 --email you@example.com
+   ```
+With SMS notifications:
+   ```bash
+   python main.py --source 0 --email you@example.com-- phone +1234567890
    ```
 With selected detection accuracy:
    ```bash
