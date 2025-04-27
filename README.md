@@ -89,7 +89,7 @@ This system uses a modular pipeline:
 - ☁️ Deploy a cloud-based API version.
 
 - 🎯 Improve detection accuracy and lower false positives.
-- 
+  
 - 🧠 Integrate facial recognition for authorized faces.
 
 ---
@@ -103,8 +103,6 @@ Pull requests, suggestions, and issue reports are welcome!
 🔗 **LinkedIn: (https://www.linkedin.com/in/7th-david/)** 
 
 🐦 **Twitter/X: [@fw7th](https://twitter.com/fw7th)** 
-
-🎮 **Discord: Jaeger#7454**
 
 ---
 
