@@ -9,7 +9,7 @@ Date: 2025-03-26
 
 import os
 
-CLASS = 0  # Class 0 corresponds to humans in YOLO.
+CLASS = [0]  # Class 0 corresponds to humans in YOLO.
 
 # Get the absolute path of the 'theft_detection' package (one level above 'src')
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,4 +22,8 @@ VINO_PATH = os.path.join(BASE_DIR, "models", "yolov8n_int8_openvino_model")
 
 ONNX_PATH = os.path.join(BASE_DIR, "models", "yolov8n.onnx")
 
-POLYGONS = os.path.join(POLY_DIR, "config.json")  # Gets the file path of the polygons.
+POLYGONS = os.path.join(POLY_DIR, "zone.json")  # Gets the file path of the polygons.
+
+CONF = 0.35  # Higer confidence threshold for fewer false positives
+
+IOU = 0.45  # Lower IOU for better performance

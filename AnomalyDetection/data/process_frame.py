@@ -70,10 +70,13 @@ class FrameProcessor_:
                 self.mutex.release()
             except queue.Empty:
                 if len(batch_frames) > 0:
-                    break
+                    continue 
                 else:
                     time.sleep(0.01)
                     return False
+            except EOFError or BrokenPipeError:
+                LOG.info("End of stream reached")
+                break
             if time.time() - start_time > 0.2 and len(batch_frames) > 0:
                 break
 
@@ -85,6 +88,9 @@ class FrameProcessor_:
                     for frame in batch_frames
                     if preprocess_frame(frame).size > 0
                 ]
+
+                if len(batch_frames) < 0 or frame.size < 0:
+                        raise ValueError("Stream has ended.")
 
                 self.frame_count += len(preprocessed_frames)
 
@@ -116,7 +122,8 @@ class FrameProcessor_:
             LOG.debug("Detection queue is full")
             time.sleep(0.001)
             return False
-
+        except ValueError or EOFError or BrokenPipeError:
+            LOG.info("Stream has ended, ending preprocessor.")
         except Exception as e:
             LOG.error(f"Preprocessing error: {e}")
             time.sleep(0.001)

@@ -388,11 +388,11 @@ class Compile:
         
         # Choose worker type based on GPU availability
         # For CPU, use processes for compute-intensive tasks
-        self.worker_preprocess = [Process(target=self.preprocess_frame, name=f"Preprocessor-{i}")
-                                  for i in range(2)]
+        self.worker_preprocess = Process(target=self.preprocess_frame, name="Preprocessor")
+        
         self.worker_detect = Process(target=self.detect_on_frame, name="Detector")
         
-        self.workers.extend(self.worker_preprocess)
+        self.workers.extend([self.worker_preprocess])
         self.workers.extend([self.worker_detect])
 
         LOG.info("Started preprocessing and detection threads")
@@ -458,7 +458,7 @@ class Compile:
         # Join all workers with timeout
         for worker in self.workers:
             try:
-                worker.join(timeout=2.0)
+                worker.join(timeout=3.0)
                 if worker.is_alive():
                     LOG.warning(f"Worker {worker.name} did not terminate properly")
             except Exception as e:

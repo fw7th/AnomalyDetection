@@ -1,1 +1,3 @@
-from .settings import V8_PATH, VINO_PATH, POLYGONS, ONNX_PATH
+from .settings import V8_PATH, VINO_PATH, POLYGONS, ONNX_PATH, CLASS, IOU, CONF 
+
+__all__ = ["V8_PATH", "VINO_PATH", "POLYGONS", "ONNX_PATH", "CLASS", "IOU", "CONF"]

@@ -102,5 +102,11 @@ class Frames:
                 if processing_time < self.frame_delay:
                     time.sleep(self.frame_delay - processing_time)
 
+        except TypeError:
+            LOG.critical("Invalid value for stream source.")
+        except ValueError:
+            LOG.critical("Wrong value entered for stream source.")
+        except FileNotFoundError as e:
+            LOG.critical(f"Directory of source is nonexistent: {e}. Please enter a valid source.")
         except Exception as e:
             LOG.critical(f"Critical error in frame reader: {e}")

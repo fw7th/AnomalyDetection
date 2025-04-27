@@ -210,9 +210,9 @@ class ObjectDetector:
             try:
                 self.results = self.model(
                     self.frame,
-                    classes=[0],  # Person class
-                    conf=0.35,    # Higher confidence threshold for fewer false positives
-                    iou=0.45,     # Lower IOU threshold for better performance
+                    classes=settings.CLASS,  
+                    conf=settings.CONF, 
+                    iou=settings.IOU,
                     device="cuda" if self.use_gpu else "cpu",
                     augment=False,
                     agnostic_nms=True,
