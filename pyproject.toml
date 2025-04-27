@@ -1,0 +1,32 @@
+[project]
+name = "AnomalyDetection"
+version = "0.1.0"
+description = "Uses Computer Vision techniques to detect human interference in real-time around predefined zones ."
+authors = [
+  { name="fw7th", email="okosa7th@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+
+# Dependencies for running the project
+dependencies = [
+    "numpy>=1.22",
+    "opencv-python>=4.8",
+    "torch>=2.0",
+    "ultralytics>=8.3.91",
+    "supervision>=0.25.1",
+    "matplotlib",
+]
+
+# Optional dependencies for development only
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"

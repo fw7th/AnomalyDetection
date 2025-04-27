@@ -1,12 +1,10 @@
 __pycache__
-__init__.py
 *.egg-info/
+dist/
 venv/
 *.log
 ./env
 build/
-*.pt
 *.partial
-*.onnx
 keys/
 .env
