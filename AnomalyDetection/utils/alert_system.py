@@ -85,7 +85,7 @@ def sound_alerts():
         winsound.Beep(1000, 500)
     else:
         BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        sound = os.path.join(BASE_DIR, "beep.wav")
+        sound = os.path.join(BASE_DIR, "media", "beep.wav")
 
         import simpleaudio as sa
         wave_obj = sa.WaveObject.from_wave_file(sound)  # Must be .wav

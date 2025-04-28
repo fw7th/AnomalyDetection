@@ -107,6 +107,11 @@ class Compile:
             "detection_ready": self.manager.Event(),
             "display_ready": self.manager.Event(),
             
+            # Events for component completion
+            "reader_complete": self.manager.Event(),
+            "preprocessing_complete": self.manager.Event(),
+            "detection_complete": self.manager.Event(),
+            
             # Event to signal pipeline shutdown
             "pipeline_stop": self.manager.Event()
         }
@@ -137,12 +142,11 @@ class Compile:
             enable_saving=self.enable_saving,
             save_dir=self.save_dir
         )
-
     def read_frame(self):
         """Read frames from source and put them in the frame queue.
-        
-        Initializes the frame reader and continuously reads frames until the source
+        Initializes the frame reader and continuously reads frames until the source,
         is exhausted or the pipeline is stopped.
+        Once all frames are read, waits for the display queue to be empty before signaling full completion.
         """
         try:
             LOG.info("Starting frame reader")
@@ -154,17 +158,20 @@ class Compile:
             
             # Start reading frames (this will run until the source is exhausted)
             self.reader.read_frames()
-            LOG.info("Frame reader completed")
+            LOG.info("Frame reader completed reading all frames")
             
-            # Signal that all frames have been read (this should be done by read_frames)
-            LOG.info("All frames read, waiting for pipeline to complete processing")
+            # Signal that all frames have been read but don't immediately shutdown
+            self.events["reader_complete"].set()
+            LOG.info("All frames read, signaled reader_complete")
             
-            # Wait for display to process the final frames before stopping
+            # Wait for the display queue to be empty (meaning all frames have been processed)
+            LOG.info("Waiting for display queue to be empty before full shutdown")
             while not self.detection_queue.empty() and not self.events["pipeline_stop"].is_set():
                 time.sleep(0.1)
                 
             # Now signal pipeline to stop if not already stopped
             if not self.events["pipeline_stop"].is_set():
+                LOG.info("Display queue empty, signaling pipeline to stop")
                 self.events["pipeline_stop"].set()
             
         except Exception as e:
@@ -174,13 +181,12 @@ class Compile:
                 self.events["pipeline_stop"].set()
 
         finally:
-            if self.detection_queue.empty:
-                time.sleep(0.5)
-                # Release resources outside the loop when done and end reading
-                if self.reader.cap is not None:
-                    self.reader.cap.release()
-                    LOG.info("Video capture released")
-                    self.reader.running.clear()
+            # Release resources when done and end reading
+            if self.reader.cap is not None:
+                self.reader.cap.release()
+                LOG.info("Video capture released")
+            
+            self.reader.running.clear()
 
     def preprocess_frame(self):
         """Preprocess frames from the frame queue continuously.
@@ -210,8 +216,8 @@ class Compile:
                 try:
                     # Check if input queue has frames
                     if self.frame_queue.empty():
-                        # If reader is still running or queue not empty, wait for more frames
-                        if hasattr(self.reader, 'running') and self.reader.running.is_set():
+                        # If reader is still running or complete event not set, wait for more frames
+                        if not self.events["reader_complete"].is_set():
                             time.sleep(0.01)
                             continue
                         else:
@@ -219,11 +225,7 @@ class Compile:
                             LOG.info("No more frames to preprocess, preprocessor exiting")
                             break
                     
-                    # Process available frames using appropriate method
-                    """
-                    if self.use_gpu:
-                        self.preprocessing.process_single_frame_gpu()
-                    """
+                    # Process available frames
                     self.preprocessing.process_frame()
                         
                 except queue.Empty:
@@ -235,8 +237,7 @@ class Compile:
                         self.events["pipeline_stop"].set()
                     break
             
-            LOG.info("Frame preprocessor shutting down")
-            
+            LOG.info("Frame preprocessor shutting down")            
         except Exception as e:
             LOG.error(f"Error in preprocessing: {e}")
             # On error, signal pipeline to stop
@@ -244,8 +245,9 @@ class Compile:
                 self.events["pipeline_stop"].set()
 
         finally:
-            if self.reader.running == False:
-                self.preprocessing._running.clear()
+            self.preprocessing._running.clear()
+            self.events["preprocessing_complete"].set()
+            LOG.info("Preprocessing complete, signaled preprocessing_complete")
 
     def detect_on_frame(self):
         """Detect objects in preprocessed frames continuously.
@@ -275,8 +277,8 @@ class Compile:
                 try:
                     # Check if input queue has frames
                     if self.preprocessed_queue.empty():
-                        # If preprocessor is still running or input not empty, wait for more frames
-                        if hasattr(self.preprocessing, '_running') and self.preprocessing._running.is_set():
+                        # If preprocessor is still running or not complete, wait for more frames
+                        if not self.events["preprocessing_complete"].is_set():
                             time.sleep(0.01)
                             continue
                         else:
@@ -306,6 +308,8 @@ class Compile:
 
         finally:
             self.detect._running.clear()
+            self.events["detection_complete"].set()
+            LOG.info("Detection complete, signaled detection_complete")
 
     def display_frames(self):
         """Display detected objects in frames continuously.
@@ -335,8 +339,8 @@ class Compile:
                 try:
                     # Check if input queue has inference frames
                     if self.detection_queue.empty():
-                        # If detector is still running or input not empty, wait for more frames
-                        if hasattr(self.detect, '_running') and self.detect._running.is_set():
+                        # If detector is still running or not complete, wait for more frames
+                        if not self.events["detection_complete"].is_set():
                             time.sleep(0.01)
                             continue
                         else:
@@ -373,6 +377,10 @@ class Compile:
 
         finally:
             self.display.cleanup()
+            LOG.info("Display cleanup complete")
+            # Signal pipeline stop when display is done
+            if not self.events["pipeline_stop"].is_set():
+                self.events["pipeline_stop"].set()
 
     def setup_workers(self):
         """Create worker threads or processes based on available hardware.
@@ -392,8 +400,8 @@ class Compile:
         
         self.worker_detect = Process(target=self.detect_on_frame, name="Detector")
         
-        self.workers.extend([self.worker_preprocess])
-        self.workers.extend([self.worker_detect])
+        self.workers.append(self.worker_preprocess)
+        self.workers.append(self.worker_detect)
 
         LOG.info("Started preprocessing and detection threads")
 
@@ -409,7 +417,7 @@ class Compile:
         """
         LOG.info("Starting all pipeline workers")
         for worker in self.workers:
-            worker.daemon = True  # Allow program to exit even if workers are running
+            worker.daemon = False  # Changed from True to ensure cleanup code runs
             worker.start()
             LOG.info(f"Started {worker.name}")
             
@@ -453,14 +461,25 @@ class Compile:
         if hasattr(self.display, 'running'):
             self.display.running.clear()
         
+        # Set all completion events to ensure workers exit their loops
+        self.events["reader_complete"].set()
+        self.events["preprocessing_complete"].set()
+        self.events["detection_complete"].set()
+        
         LOG.info("Joining workers")
         
         # Join all workers with timeout
         for worker in self.workers:
             try:
-                worker.join(timeout=3.0)
+                worker.join(timeout=5.0)
                 if worker.is_alive():
-                    LOG.warning(f"Worker {worker.name} did not terminate properly")
+                    LOG.warning(f"Worker {worker.name} did not terminate properly within timeout")
+                    # For processes, we might need to terminate them
+                    if isinstance(worker, Process):
+                        worker.terminate()
+                        LOG.info(f"Terminated {worker.name}")
+                        worker.join(timeout=1.0)
+
             except Exception as e:
                 LOG.error(f"Error joining {worker.name}: {e}")
         
@@ -490,7 +509,10 @@ class Compile:
                 # Empty the queue
                 with contextlib.suppress(Exception):
                     while not queue.empty():
-                        queue.get_nowait()
+                        try:
+                            queue.get(block=False)
+                        except queue.Empty:
+                            break
             except Exception as e:
                 LOG.error(f"Error cleaning queue: {e}")
 

@@ -94,6 +94,7 @@ class VideoDisplay:
         If saving is enabled, frames are buffered for saving. The FPS (frames per second)
         is logged every 2 seconds.
         """
+        cv.namedWindow(window_name, cv.WINDOW_FULLSCREEN)
         try:
             self.frame = self.detection_queue.get(timeout=0.01)
             assert isinstance(self.frame, np.ndarray), f"Frame isn't valid, {type(self.frame)}"

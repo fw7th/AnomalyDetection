@@ -15,7 +15,6 @@ Typical usage:
 from utils import preprocess_frame
 from core import LOG
 import multiprocessing as mp
-import threading
 import torch
 import time
 import queue
@@ -47,7 +46,6 @@ class FrameProcessor_:
         self.frame_count = 0
         self.fps = 0
         self.last_log_time = time.time()
-        self.mutex = mp.Manager().RLock()
 
     def process_frame(self):
         """
@@ -64,10 +62,8 @@ class FrameProcessor_:
         # Fill the batch
         while len(batch_frames) < self.batch_size:
             try:
-                self.mutex.acquire()
                 frame = self.frame_queue.get(timeout=0.01)
                 batch_frames.append(frame)
-                self.mutex.release()
             except queue.Empty:
                 if len(batch_frames) > 0:
                     continue 
@@ -104,10 +100,8 @@ class FrameProcessor_:
                     self.last_log_time = current_time
 
                 # Push to output queue
-                self.mutex.acquire()
                 for frame in preprocessed_frames:
                     self.preprocessed_queue.put(frame, timeout=0.01)
-                self.mutex.release()
 
             # Maintain source-aligned framerate
             self.frame_delay = 1.0 / self.fps
@@ -122,8 +116,8 @@ class FrameProcessor_:
             LOG.debug("Detection queue is full")
             time.sleep(0.001)
             return False
-        except ValueError or EOFError or BrokenPipeError:
-            LOG.info("Stream has ended, ending preprocessor.")
+        except ValueError or EOFError:
+            LOG.info("Stream has ended, stopping preprocessor.")
         except Exception as e:
             LOG.error(f"Preprocessing error: {e}")
             time.sleep(0.001)

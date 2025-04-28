@@ -20,6 +20,10 @@ Instead of complex action recognition, it detects **unauthorized presence** in p
 - 🔄 **(Planned)** API for easy integration.  
 - 🔄 **(Planned)** Edge device deployment for low-power efficiency.
 
+<p align="center">
+  <img src="AnomalyDetection/media/demo.gif" alt="Demo" width="600">
+</p>
+
 ---
 
 ## Setup & Installation  
@@ -35,6 +39,7 @@ Instead of complex action recognition, it detects **unauthorized presence** in p
    - Create a ```.env``` file with your email credentials
    - Configure Twilio credentials in ```AnomalyDetection/config/keys/twilio.txt.```
 
+
 ---
 
 ## Usage
@@ -42,25 +47,33 @@ Basic usage:
    ```bash
    python main.py --source /path/to/video.mp4 --enable-saving --output output.mp4
    ```
+Run the script on the provided sample video
+   ```bash
+   python detect.py --source AnomalyDetection/examples/sample.mp4
+   ```
 Camera input:
    ```bash
-python main.py --source 0
+   python main.py --source 0
    ```
 RTSP stream:
    ```bash
-python main.py --source rtsp://your-stream-url
+   python main.py --source rtsp://your-stream-url
    ```
 With email notifications:
    ```bash
-python main.py --source 0 --email you@example.com
+   python main.py --source 0 --email you@example.com
    ```
 With SMS notifications:
    ```bash
-   python main.py --source 0 --email you@example.com-- phone +1234567890
+   python main.py --source 0 --phone +1234567890
+   ```
+With a path for saved video:
+   ```bash
+   python main.py --source 0 --enable-saving --output /your/save/path.mp4
    ```
 With selected detection accuracy:
    ```bash
-python main.py --source 0 --phone +1234567890 --email you@example.com --accuracy 2
+   python main.py --source 0 --accuracy 2
    ```
 
 ---
