@@ -21,7 +21,7 @@ Instead of complex action recognition, it detects **unauthorized presence** in p
 - 🔄 **(Planned)** Edge device deployment for low-power efficiency.
 
 <p align="center">
-  <img src="AnomalyDetection/media/demo.gif" alt="Demo" width="600">
+  <img src="media/demo.gif" alt="Demo" width="600">
 </p>
 
 ---
@@ -49,7 +49,7 @@ Basic usage:
    ```
 Run the script on the provided sample video
    ```bash
-   python detect.py --source AnomalyDetection/examples/sample.mp4
+   python main.py --source ../examples/sample.mp4
    ```
 Camera input:
    ```bash
